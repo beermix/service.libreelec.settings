@@ -139,10 +139,10 @@ class system:
                     'settings': {
                         'AutoUpdate': {
                             'name': 32014,
-                            'value': 'auto',
+                            'value': 'manual',
                             'action': 'set_auto_update',
                             'type': 'multivalue',
-                            'values': ['auto', 'manual'],
+                            'values': ['manual', 'auto'],
                             'InfoText': 714,
                             'order': 1,
                             },
