@@ -19,7 +19,6 @@ class services:
     SAMBA_NMDB = None
     SAMBA_SMDB = None
     D_SAMBA_SECURE = None
-    D_SAMBA_WORKGROUP = None
     D_SAMBA_USERNAME = None
     D_SAMBA_PASSWORD = None
     D_SAMBA_AUTOSHARE = None
@@ -53,20 +52,8 @@ class services:
                             'type': 'bool',
                             'InfoText': 738,
                             },
-                        'samba_workgroup': {
-                            'order': 2,
-                            'name': 32215,
-                            'value': "WORKGROUP",
-                            'action': 'initialize_samba',
-                            'type': 'text',
-                            'parent': {
-                                'entry': 'samba_autostart',
-                                'value': ['1'],
-                                },
-                            'InfoText': 758,
-                            },
                         'samba_secure': {
-                            'order': 3,
+                            'order': 2,
                             'name': 32202,
                             'value': None,
                             'action': 'initialize_samba',
@@ -78,7 +65,7 @@ class services:
                             'InfoText': 739,
                             },
                         'samba_username': {
-                            'order': 4,
+                            'order': 3,
                             'name': 32106,
                             'value': None,
                             'action': 'initialize_samba',
@@ -90,7 +77,7 @@ class services:
                             'InfoText': 740,
                             },
                         'samba_password': {
-                            'order': 5,
+                            'order': 4,
                             'name': 32107,
                             'value': None,
                             'action': 'initialize_samba',
@@ -101,20 +88,8 @@ class services:
                                 },
                             'InfoText': 741,
                             },
-                            'parent': {
-                                'entry': 'samba_autostart',
-                                'value': ['1'],
-                                },
-                            'InfoText': 756,
-                            },
-                            'parent': {
-                                'entry': 'samba_autostart',
-                                'value': ['1'],
-                                },
-                            'InfoText': 757,
-                            },
                         'samba_autoshare': {
-                            'order': 8,
+                            'order': 5,
                             'name': 32216,
                             'value': None,
                             'action': 'initialize_samba',
@@ -167,7 +142,7 @@ class services:
                         },
                     },
                 'avahi': {
-                    'order': 3,
+                    'order': 4,
                     'name': 32207,
                     'not_supported': [],
                     'settings': {'avahi_autostart': {
@@ -180,7 +155,7 @@ class services:
                         }},
                     },
                 'cron': {
-                    'order': 4,
+                    'order': 5,
                     'name': 32319,
                     'not_supported': [],
                     'settings': {'cron_autostart': {
@@ -193,7 +168,7 @@ class services:
                         }},
                     },
                 'bluez': {
-                    'order': 6,
+                    'order': 7,
                     'name': 32331,
                     'not_supported': [],
                     'settings': {
@@ -290,8 +265,6 @@ class services:
 
             if os.path.isfile(self.SAMBA_NMDB) and os.path.isfile(self.SAMBA_SMDB):
                 self.struct['samba']['settings']['samba_autostart']['value'] = self.oe.get_service_state('samba')
-                self.struct['samba']['settings']['samba_workgroup']['value'] = self.oe.get_service_option('samba', 'SAMBA_WORKGROUP',
-                        self.D_SAMBA_WORKGROUP).replace('"', '')
                 self.struct['samba']['settings']['samba_secure']['value'] = self.oe.get_service_option('samba', 'SAMBA_SECURE',
                         self.D_SAMBA_SECURE).replace('true', '1').replace('false', '0').replace('"', '')
                 self.struct['samba']['settings']['samba_username']['value'] = self.oe.get_service_option('samba', 'SAMBA_USERNAME',
