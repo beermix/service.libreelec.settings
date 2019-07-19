@@ -1,29 +1,6 @@
-################################################################################
-#      This file is part of OpenELEC - http://www.openelec.tv
-#      Copyright (C) 2009-2013 Stephan Raue (stephan@openelec.tv)
-#      Copyright (C) 2013 Lutz Fiebach (lufie@openelec.tv)
-#
-#  This program is dual-licensed; you can redistribute it and/or modify
-#  it under the terms of the GNU General Public License as published by
-#  the Free Software Foundation; either version 2 of the License, or
-#  (at your option) any later version.
-#
-#  This Program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with OpenELEC; see the file COPYING.  If not, see
-#  <http://www.gnu.org/licenses/>.
-#
-#  Alternatively, you can license this library under a commercial license,
-#  please contact OpenELEC Licensing for more information.
-#
-#  For more information contact:
-#  OpenELEC Licensing  <license@openelec.tv>  http://www.openelec.tv
-################################################################################
-# -*- coding: utf-8 -*-
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2009-2013 Stephan Raue (stephan@openelec.tv)
+# Copyright (C) 2013 Lutz Fiebach (lufie@openelec.tv)
 
 import os
 
@@ -74,18 +51,12 @@ services = {
     'D_SSH_DISABLE_PW_AUTH': '0',
     'AVAHI_DAEMON': '/usr/sbin/avahi-daemon',
     'CRON_DAEMON': '/sbin/crond',
-    'LIRCD_DAEMON': '/usr/sbin/lircd',
-    'LIRCD_UINPUT_DAEMON': '/usr/sbin/lircd-uinput',
     }
 
 system = {
     'ENABLED': True,
     'KERNEL_CMD': '/proc/cmdline',
     'SET_CLOCK_CMD': '/sbin/hwclock --systohc --utc',
-    'UPDATE_REQUEST_URL': 'https://update.libreelec.tv/updates.php',
-    'UPDATE_DOWNLOAD_URL': 'http://%s.libreelec.tv/%s',
-    'LOCAL_UPDATE_DIR': '/storage/.update/',
-    'GET_CPU_FLAG': "cat /proc/cpuinfo | grep -q 'flags.* lm ' && echo '1' || echo '0'",
     'XBMC_RESET_FILE': '%s/reset_xbmc' % CONFIG_CACHE,
     'LIBREELEC_RESET_FILE': '%s/reset_oe' % CONFIG_CACHE,
     'KEYBOARD_INFO': '/usr/share/X11/xkb/rules/base.xml',
@@ -101,6 +72,13 @@ system = {
     'RESTORE_DIR': '/storage/.restore/',
     }
 
+updates = {
+    'ENABLED': True,
+    'UPDATE_REQUEST_URL': 'https://update.libreelec.tv/updates.php',
+    'UPDATE_DOWNLOAD_URL': 'http://%s.libreelec.tv/%s',
+    'LOCAL_UPDATE_DIR': '/storage/.update/',
+    }
+
 about = {'ENABLED': True}
 
 xdbus = {'ENABLED': True}
@@ -112,5 +90,5 @@ _services = {
     'bluez': ['bluetooth.service'],
     'obexd': ['obex.service'],
     'crond': ['cron.service'],
-    'lircd': ['lircd.service', 'lircd-uinput.service'],
+    'iptables': ['iptables.service'],
     }

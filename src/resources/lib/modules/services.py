@@ -1,33 +1,17 @@
-################################################################################
-#      This file is part of OpenELEC - http://www.openelec.tv
-#      Copyright (C) 2009-2013 Stephan Raue (stephan@openelec.tv)
-#      Copyright (C) 2013 Lutz Fiebach (lufie@openelec.tv)
-#
-#  This program is dual-licensed; you can redistribute it and/or modify
-#  it under the terms of the GNU General Public License as published by
-#  the Free Software Foundation; either version 2 of the License, or
-#  (at your option) any later version.
-#
-#  This Program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with OpenELEC; see the file COPYING.  If not, see
-#  <http://www.gnu.org/licenses/>.
-#
-#  Alternatively, you can license this library under a commercial license,
-#  please contact OpenELEC Licensing for more information.
-#
-#  For more information contact:
-#  OpenELEC Licensing  <license@openelec.tv>  http://www.openelec.tv
-################################################################################
-# -*- coding: utf-8 -*-
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2009-2013 Stephan Raue (stephan@openelec.tv)
+# Copyright (C) 2013 Lutz Fiebach (lufie@openelec.tv)
 
 import os
 import glob
+import subprocess
+import xbmc
+import xbmcgui
+import xbmcaddon
 
+__scriptid__ = 'service.libreelec.settings'
+__addon__ = xbmcaddon.Addon(id=__scriptid__)
+xbmcDialog = xbmcgui.Dialog()
 
 class services:
 
@@ -35,6 +19,7 @@ class services:
     SAMBA_NMDB = None
     SAMBA_SMDB = None
     D_SAMBA_SECURE = None
+    D_SAMBA_WORKGROUP = None
     D_SAMBA_USERNAME = None
     D_SAMBA_PASSWORD = None
     D_SAMBA_AUTOSHARE = None
@@ -44,9 +29,7 @@ class services:
     OPT_SSH_NOPASSWD = None
     AVAHI_DAEMON = None
     CRON_DAEMON = None
-    LIRCD_DAEMON = None
-    LIRCD_UINPUT_DAEMON = None
-    menu = {'4': {
+    menu = {'7': {
         'name': 32001,
         'menuLoader': 'load_menu',
         'listTyp': 'list',
@@ -70,8 +53,20 @@ class services:
                             'type': 'bool',
                             'InfoText': 738,
                             },
-                        'samba_secure': {
+                        'samba_workgroup': {
                             'order': 2,
+                            'name': 32215,
+                            'value': "WORKGROUP",
+                            'action': 'initialize_samba',
+                            'type': 'text',
+                            'parent': {
+                                'entry': 'samba_autostart',
+                                'value': ['1'],
+                                },
+                            'InfoText': 758,
+                            },
+                        'samba_secure': {
+                            'order': 3,
                             'name': 32202,
                             'value': None,
                             'action': 'initialize_samba',
@@ -83,7 +78,7 @@ class services:
                             'InfoText': 739,
                             },
                         'samba_username': {
-                            'order': 3,
+                            'order': 4,
                             'name': 32106,
                             'value': None,
                             'action': 'initialize_samba',
@@ -95,7 +90,7 @@ class services:
                             'InfoText': 740,
                             },
                         'samba_password': {
-                            'order': 4,
+                            'order': 5,
                             'name': 32107,
                             'value': None,
                             'action': 'initialize_samba',
@@ -106,8 +101,20 @@ class services:
                                 },
                             'InfoText': 741,
                             },
+                            'parent': {
+                                'entry': 'samba_autostart',
+                                'value': ['1'],
+                                },
+                            'InfoText': 756,
+                            },
+                            'parent': {
+                                'entry': 'samba_autostart',
+                                'value': ['1'],
+                                },
+                            'InfoText': 757,
+                            },
                         'samba_autoshare': {
-                            'order': 5,
+                            'order': 8,
                             'name': 32216,
                             'value': None,
                             'action': 'initialize_samba',
@@ -144,6 +151,18 @@ class services:
                                 'value': ['1'],
                                 },
                             'InfoText': 743,
+                            },
+                        'ssh_passwd': {
+                            'order': 3,
+                            'name': 32209,
+                            'value': None,
+                            'action': 'do_sshpasswd',
+                            'type': 'button',
+                            'parent': {
+                                'entry': 'ssh_secure',
+                                'value': ['0'],
+                                },
+                            'InfoText': 746,
                             },
                         },
                     },
@@ -212,21 +231,6 @@ class services:
                             },
                         },
                     },
-                'lircd': {
-                    'order': 7,
-                    'name': 32391,
-                    'not_supported': [],
-                    'settings': {
-                        'lircd_autostart': {
-                            'order': 1,
-                            'name': 32392,
-                            'value': None,
-                            'action': 'initialize_lircd',
-                            'type': 'bool',
-                            'InfoText': 746,
-                            },
-                        },
-                    },
                 }
 
             self.oe = oeMain
@@ -243,7 +247,6 @@ class services:
             self.initialize_avahi(service=1)
             self.initialize_cron(service=1)
             self.init_bluetooth(service=1)
-            self.initialize_lircd(service=1)
             self.oe.dbg_log('services::start_service', 'exit_function', 0)
         except Exception, e:
             self.oe.dbg_log('services::start_service', 'ERROR: (%s)' % repr(e))
@@ -287,6 +290,8 @@ class services:
 
             if os.path.isfile(self.SAMBA_NMDB) and os.path.isfile(self.SAMBA_SMDB):
                 self.struct['samba']['settings']['samba_autostart']['value'] = self.oe.get_service_state('samba')
+                self.struct['samba']['settings']['samba_workgroup']['value'] = self.oe.get_service_option('samba', 'SAMBA_WORKGROUP',
+                        self.D_SAMBA_WORKGROUP).replace('"', '')
                 self.struct['samba']['settings']['samba_secure']['value'] = self.oe.get_service_option('samba', 'SAMBA_SECURE',
                         self.D_SAMBA_SECURE).replace('true', '1').replace('false', '0').replace('"', '')
                 self.struct['samba']['settings']['samba_username']['value'] = self.oe.get_service_option('samba', 'SAMBA_USERNAME',
@@ -305,10 +310,10 @@ class services:
                 self.struct['ssh']['settings']['ssh_secure']['value'] = self.oe.get_service_option('sshd', 'SSHD_DISABLE_PW_AUTH',
                         self.D_SSH_DISABLE_PW_AUTH).replace('true', '1').replace('false', '0').replace('"', '')
 
-                # hide ssh settings if Kernel Parameter isset
+                # hide ssh settings if Kernel Parameter is set
 
                 cmd_file = open(self.KERNEL_CMD, 'r')
-                cmd_args = cmd_file.read()
+                cmd_args = cmd_file.read().split(' ')
                 if 'ssh' in cmd_args:
                     self.struct['ssh']['settings']['ssh_autostart']['value'] = '1'
                     self.struct['ssh']['settings']['ssh_autostart']['hidden'] = 'true'
@@ -345,13 +350,6 @@ class services:
                 else:
                     self.struct['bluez']['hidden'] = 'true'
 
-            # LIRCD
-
-            if os.path.isfile(self.LIRCD_DAEMON) and os.path.isfile(self.LIRCD_UINPUT_DAEMON):
-                self.struct['lircd']['settings']['lircd_autostart']['value'] = self.oe.get_service_state('lircd')
-            else:
-                self.struct['lircd']['hidden'] = 'true'
-
             self.oe.dbg_log('services::load_values', 'exit_function', 0)
         except Exception, e:
             self.oe.dbg_log('services::load_values', 'ERROR: (%s)' % repr(e))
@@ -377,6 +375,7 @@ class services:
                     val_autoshare = 'true'
                 else:
                     val_autoshare = 'false'
+                options['SAMBA_WORKGROUP'] = '"%s"' % self.struct['samba']['settings']['samba_workgroup']['value']
                 options['SAMBA_SECURE'] = '"%s"' % val_secure
                 options['SAMBA_AUTOSHARE'] = '"%s"' % val_autoshare
                 options['SAMBA_USERNAME'] = '"%s"' % self.struct['samba']['settings']['samba_username']['value']
@@ -494,23 +493,6 @@ class services:
             self.oe.set_busy(0)
             self.oe.dbg_log('services::init_obex', 'ERROR: (' + repr(e) + ')', 4)
 
-    def initialize_lircd(self, **kwargs):
-        try:
-            self.oe.dbg_log('services::inititialize_lircd', 'enter_function', 0)
-            self.oe.set_busy(1)
-            if 'listItem' in kwargs:
-                self.set_value(kwargs['listItem'])
-            state = 1
-            options = {}
-            if self.struct['lircd']['settings']['lircd_autostart']['value'] != '1':
-                state = 0
-            self.oe.set_service('lircd', options, state)
-            self.oe.set_busy(0)
-            self.oe.dbg_log('services::inititialize_lircd', 'exit_function', 0)
-        except Exception, e:
-            self.oe.set_busy(0)
-            self.oe.dbg_log('services::inititialize_lircd', 'ERROR: (' + repr(e) + ')', 4)
-
     def exit(self):
         try:
             self.oe.dbg_log('services::exit', 'enter_function', 0)
@@ -561,15 +543,17 @@ class services:
             else:
                 self.struct['ssh']['settings']['ssh_autostart']['value'] = '1'
 
-            # ssh button does nothing if Kernel Parameter isset
+            # ssh button does nothing if Kernel Parameter is set
 
             cmd_file = open(self.KERNEL_CMD, 'r')
-            cmd_args = cmd_file.read()
+            cmd_args = cmd_file.read().split(' ')
             if 'ssh' in cmd_args:
                 self.oe.notify('ssh', 'ssh enabled as boot parameter. can not disable')
             cmd_file.close()
             self.initialize_ssh()
             self.load_values()
+            if self.struct['ssh']['settings']['ssh_autostart']['value'] == '1':
+                self.wizard_sshpasswd()
             self.set_wizard_buttons()
             self.oe.dbg_log('services::wizard_set_ssh', 'exit_function', 0)
         except Exception, e:
@@ -589,4 +573,47 @@ class services:
         except Exception, e:
             self.oe.dbg_log('services::wizard_set_samba', 'ERROR: (%s)' % repr(e))
 
+    def wizard_sshpasswd(self):
+        SSHresult = False
+        while SSHresult == False:
+            changeSSH = xbmcDialog.yesno(self.oe._(32209), self.oe._(32210), yeslabel=self.oe._(32213), nolabel=self.oe._(32214))
+            if changeSSH:
+                SSHresult = True
+            else:
+                changeSSHresult = self.do_sshpasswd()
+                if changeSSHresult:
+                    SSHresult = True
+        return
 
+    def do_sshpasswd(self, **kwargs):
+        try:
+            self.oe.dbg_log('system::do_sshpasswd', 'enter_function', 0)
+            SSHchange = False
+            newpwd = xbmcDialog.input(self.oe._(746))
+            if newpwd:
+                if newpwd == "libreelec":
+                    self.oe.execute('cp -fp /usr/cache/shadow /storage/.cache/shadow')
+                    readout3 = "Retype password"
+                else:
+                    ssh = subprocess.Popen(["passwd"], shell=False, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    readout1 = ssh.stdout.readline()
+                    ssh.stdin.write(newpwd + '\n')
+                    ssh.stdin.flush()
+                    readout2 = ssh.stdout.readline()
+                    ssh.stdin.write(newpwd + '\n')
+                    readout3 = ssh.stdout.readline()
+                if "Bad password" in readout3:
+                    xbmcDialog.ok(self.oe._(32220), self.oe._(32221))
+                    self.oe.dbg_log('system::do_sshpasswd', 'exit_function password too weak', 0)
+                    return
+                elif "Retype password" in readout3:
+                    xbmcDialog.ok(self.oe._(32222), self.oe._(32223))
+                    SSHchange = True
+                else:
+                    xbmcDialog.ok(self.oe._(32224), self.oe._(32225))
+                self.oe.dbg_log('system::do_sshpasswd', 'exit_function', 0)
+            else:
+                self.oe.dbg_log('system::do_sshpasswd', 'user_cancelled', 0)
+            return SSHchange
+        except Exception, e:
+            self.oe.dbg_log('system::do_sshpasswd', 'ERROR: (' + repr(e) + ')')

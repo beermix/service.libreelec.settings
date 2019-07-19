@@ -1,29 +1,7 @@
-################################################################################
-#      This file is part of OpenELEC - http://www.openelec.tv
-#      Copyright (C) 2009-2013 Stephan Raue (stephan@openelec.tv)
-#      Copyright (C) 2013 Lutz Fiebach (lufie@openelec.tv)
-#
-#  This program is dual-licensed; you can redistribute it and/or modify
-#  it under the terms of the GNU General Public License as published by
-#  the Free Software Foundation; either version 2 of the License, or
-#  (at your option) any later version.
-#
-#  This Program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with OpenELEC; see the file COPYING.  If not, see
-#  <http://www.gnu.org/licenses/>.
-#
-#  Alternatively, you can license this library under a commercial license,
-#  please contact OpenELEC Licensing for more information.
-#
-#  For more information contact:
-#  OpenELEC Licensing  <license@openelec.tv>  http://www.openelec.tv
-################################################################################
-# -*- coding: utf-8 -*-
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2009-2013 Stephan Raue (stephan@openelec.tv)
+# Copyright (C) 2013 Lutz Fiebach (lufie@openelec.tv)
+# Copyright (C) 2017-present Team LibreELEC
 
 import os
 import xbmc
@@ -35,6 +13,8 @@ import xbmcgui
 import threading
 import oeWindows
 import ConfigParser
+import random
+import string
 
 
 ####################################################################
@@ -489,18 +469,23 @@ class connman:
     ENABLED = False
     CONNMAN_DAEMON = None
     WAIT_CONF_FILE = None
+    NF_CUSTOM_PATH = "/storage/.config/iptables/"
+    connect_attempt = 0
+    log_error = 1
+    net_disconnected = 0
+    notify_error = 1
     menu = {
-        '2': {
-            'name': 32100,
-            'menuLoader': 'menu_connections',
-            'listTyp': 'netlist',
-            'InfoText': 702,
-            },
         '3': {
             'name': 32101,
             'menuLoader': 'menu_loader',
             'listTyp': 'list',
             'InfoText': 701,
+            },
+        '4': {
+            'name': 32100,
+            'menuLoader': 'menu_connections',
+            'listTyp': 'netlist',
+            'InfoText': 702,
             },
         }
 
@@ -554,7 +539,7 @@ class connman:
                         'TetheringPassphrase': {
                             'order': 4,
                             'name': 32107,
-                            'value': 'libreelec',
+                            'value': ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for _ in range(10)),
                             'action': 'set_technologie',
                             'type': 'text',
                             'dbus': 'String',
@@ -646,6 +631,14 @@ class connman:
                                 },
                             'InfoText': 737,
                             },
+                        'netfilter': {
+                            'order': 3,
+                            'name': 32395,
+                            'type': 'multivalue',
+                            'values': [],
+                            'action': 'init_netfilter',
+                            'InfoText': 771,
+                            },
                         },
                     'order': 4,
                     },
@@ -704,6 +697,26 @@ class connman:
                         self.struct['advanced']['settings']['wait_for_network_time']['value'] = line.split('=')[-1].lower().strip().replace('"',
                                 '')
                 wait_file.close()
+            # IPTABLES
+            nf_values = [self.oe._(32397), self.oe._(32398), self.oe._(32399)]
+            nf_custom_rules = [self.NF_CUSTOM_PATH + "rules.v4" , self.NF_CUSTOM_PATH + "rules.v6"]
+            for custom_rule in nf_custom_rules:
+                if os.path.exists(custom_rule):
+                    nf_values.append(self.oe._(32396))
+                    break
+            self.struct['advanced']['settings']['netfilter']['values'] = nf_values
+            if self.oe.get_service_state('iptables') == '1':
+                nf_option = self.oe.get_service_option('iptables', 'RULES', 'home')
+                if nf_option == "custom":
+                    nf_option_str = self.oe._(32396)
+                elif nf_option == "home":
+                    nf_option_str = self.oe._(32398)
+                elif nf_option == "public":
+                    nf_option_str = self.oe._(32399)
+            else:
+                nf_option_str = self.oe._(32397)
+            self.struct['advanced']['settings']['netfilter']['value'] = nf_option_str
+
             self.oe.dbg_log('connman::load_values', 'exit_function', 0)
         except Exception, e:
             self.oe.dbg_log('connman::load_values', 'ERROR: (' + repr(e) + ')')
@@ -1008,6 +1021,7 @@ class connman:
         try:
             self.oe.dbg_log('connman::connect_network', 'enter_function', 0)
             self.oe.set_busy(1)
+            self.connect_attempt += 1
             if listItem == None:
                 listItem = self.oe.winOeMain.getControl(self.oe.listObject['netlist']).getSelectedItem()
             service_object = self.oe.dbusSystemBus.get_object('net.connman', listItem.getProperty('entry'))
@@ -1035,12 +1049,36 @@ class connman:
             self.oe.set_busy(0)
             err_name = error.get_dbus_name()
             if 'InProgress' in err_name:
-                self.disconnect_network()
+                if self.net_disconnected != 1:
+                    self.disconnect_network()
+                else:
+                    self.net_disconnected = 0
                 self.connect_network()
             else:
                 err_message = error.get_dbus_message()
-                self.oe.notify('Network Error', err_message)
-                self.oe.dbg_log('connman::dbus_error_handler', 'ERROR: (' + err_message + ')', 4)
+                if 'Operation aborted' in err_message or 'Input/output error' in err_message:
+                    if self.connect_attempt == 1:
+                        self.log_error = 0
+                        self.notify_error = 0
+                        time.sleep(5)
+                        self.connect_network()
+                    else:
+                        self.log_error = 1
+                        self.notify_error = 1
+                elif 'Did not receive a reply' in err_message:
+                    self.log_error = 1
+                    self.notify_error = 0
+                else:
+                    self.log_error = 1
+                    self.notify_error = 1
+                if self.notify_error == 1:
+                    self.oe.notify('Network Error', err_message)
+                else:
+                    self.notify_error = 1
+                if self.log_error == 1:
+                    self.oe.dbg_log('connman::dbus_error_handler', 'ERROR: (' + err_message + ')', 4)
+                else:
+                    self.log_error = 1
             self.oe.dbg_log('connman::dbus_error_handler', 'exit_function', 0)
         except Exception, e:
             self.oe.set_busy(0)
@@ -1050,6 +1088,8 @@ class connman:
         try:
             self.oe.dbg_log('connman::disconnect_network', 'enter_function', 0)
             self.oe.set_busy(1)
+            self.connect_attempt = 0
+            self.net_disconnected = 1
             if listItem == None:
                 listItem = self.oe.winOeMain.getControl(self.oe.listObject['netlist']).getSelectedItem()
             service_object = self.oe.dbusSystemBus.get_object('net.connman', listItem.getProperty('entry'))
@@ -1066,6 +1106,7 @@ class connman:
         try:
             self.oe.dbg_log('connman::delete_network', 'enter_function', 0)
             self.oe.set_busy(1)
+            self.connect_attempt = 0
             if listItem == None:
                 listItem = self.oe.winOeMain.getControl(self.oe.listObject['netlist']).getSelectedItem()
             service_path = listItem.getProperty('entry')
@@ -1111,6 +1152,7 @@ class connman:
         try:
             self.oe.dbg_log('connman::start_service', 'enter_function', 0)
             self.load_values()
+            self.init_netfilter(service=1)
             self.oe.dbg_log('connman::start_service', 'exit_function', 0)
         except Exception, e:
             self.oe.dbg_log('connman::start_service', 'ERROR: (' + repr(e) + ')')
@@ -1145,6 +1187,28 @@ class connman:
         except Exception, e:
             self.oe.dbg_log('system::set_network_wait', 'ERROR: (' + repr(e) + ')')
 
+    def init_netfilter(self, **kwargs):
+        try:
+            self.oe.dbg_log('connman::init_netfilter', 'enter_function', 0)
+            self.oe.set_busy(1)
+            if 'listItem' in kwargs:
+                self.set_value(kwargs['listItem'])
+            state = 1
+            options = {}
+            if self.struct['advanced']['settings']['netfilter']['value'] == self.oe._(32396):
+                options['RULES'] = "custom"
+            elif self.struct['advanced']['settings']['netfilter']['value'] == self.oe._(32398):
+                options['RULES'] = "home"
+            elif self.struct['advanced']['settings']['netfilter']['value'] == self.oe._(32399):
+                options['RULES'] = "public"
+            else:
+                state = 0
+            self.oe.set_service('iptables', options, state)
+            self.oe.set_busy(0)
+            self.oe.dbg_log('connman::init_netfilter', 'exit_function', 0)
+        except Exception, e:
+            self.oe.dbg_log('system::init_netfilter', 'ERROR: (' + repr(e) + ')')
+
     def do_wizard(self):
         try:
             self.oe.dbg_log('connman::do_wizard', 'enter_function', 0)
@@ -1154,11 +1218,15 @@ class connman:
             self.oe.winOeMain.set_wizard_list_title(self.oe._(32309))
             self.oe.winOeMain.getControl(1391).setLabel('show')
 
+            self.oe.winOeMain.getControl(self.oe.winOeMain.buttons[2]['id'
+                                         ]).controlUp(self.oe.winOeMain.getControl(self.oe.winOeMain.guiNetList))
+            self.oe.winOeMain.getControl(self.oe.winOeMain.buttons[2]['id'
+                                         ]).controlRight(self.oe.winOeMain.getControl(self.oe.winOeMain.buttons[1]['id']))
             self.oe.winOeMain.getControl(self.oe.winOeMain.buttons[1]['id'
                                          ]).controlUp(self.oe.winOeMain.getControl(self.oe.winOeMain.guiNetList))
-
             self.oe.winOeMain.getControl(self.oe.winOeMain.buttons[1]['id'
-                                         ]).controlLeft(self.oe.winOeMain.getControl(self.oe.winOeMain.guiNetList))
+                                         ]).controlLeft(self.oe.winOeMain.getControl(self.oe.winOeMain.buttons[2]['id']))
+
             self.menu_connections(None)
             self.oe.dbg_log('connman::do_wizard', 'exit_function', 0)
         except Exception, e:
@@ -1224,11 +1292,12 @@ class connman:
         def initialize_agent(self):
             try:
                 self.oe.dbg_log('connman::monitor::initialize_agent', 'enter_function', 0)
-                dbusConnmanManager = dbus.Interface(self.oe.dbusSystemBus.get_object('net.connman', '/'), 'net.connman.Manager')
-                self.wifiAgent = connmanWifiAgent(self.oe.dbusSystemBus, self.wifiAgentPath)
-                self.wifiAgent.oe = self.oe
-                dbusConnmanManager.RegisterAgent(self.wifiAgentPath)
-                dbusConnmanManager = None
+                if not hasattr(self, 'wifiAgent'):
+                    dbusConnmanManager = dbus.Interface(self.oe.dbusSystemBus.get_object('net.connman', '/'), 'net.connman.Manager')
+                    self.wifiAgent = connmanWifiAgent(self.oe.dbusSystemBus, self.wifiAgentPath)
+                    self.wifiAgent.oe = self.oe
+                    dbusConnmanManager.RegisterAgent(self.wifiAgentPath)
+                    dbusConnmanManager = None
                 self.oe.dbg_log('connman::monitor::initialize_agent', 'exit_function', 0)
             except Exception, e:
                 self.oe.dbg_log('connman::monitor::initialize_agent', 'ERROR: (' + repr(e) + ')', 4)
@@ -1244,7 +1313,7 @@ class connman:
                         dbusConnmanManager = None
                     except:
                         dbusConnmanManager = None
-                    self.wifiAgent = None
+                    del self.wifiAgent
                 self.oe.dbg_log('connman::monitor::remove_agent', 'exit_function', 0)
             except Exception, e:
                 self.oe.dbg_log('connman::monitor::remove_agent', 'ERROR: (' + repr(e) + ')', 4)
@@ -1366,8 +1435,6 @@ class connmanWifiAgent(dbus.service.Object):
 
     def busy(self):
         self.oe.input_request = False
-        if self.oe.__busy__ > 0:
-            xbmc.executebuiltin('ActivateWindow(busydialog)')
 
     @dbus.service.method('net.connman.Agent', in_signature='', out_signature='')
     def Release(self):
@@ -1380,7 +1447,6 @@ class connmanWifiAgent(dbus.service.Object):
         try:
             self.oe.dbg_log('connman::connmanWifiAgent::RequestInput', 'enter_function', 0)
             self.oe.input_request = True
-            xbmc.executebuiltin('Dialog.Close(busydialog)')
             response = {}
             if fields.has_key('Name'):
                 xbmcKeyboard = xbmc.Keyboard('', self.oe._(32146).encode('utf-8'))
@@ -1466,5 +1532,3 @@ class connmanWifiAgent(dbus.service.Object):
         self.oe.dbg_log('connman::connmanWifiAgent::Cancel', 'enter_function', 0)
         self.oe.dbg_log('connman::connmanWifiAgent::Cancel', 'exit_function', 0)
         return
-
-

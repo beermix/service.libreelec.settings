@@ -1,29 +1,7 @@
-################################################################################
-#      This file is part of OpenELEC - http://www.openelec.tv
-#      Copyright (C) 2009-2013 Stephan Raue (stephan@openelec.tv)
-#      Copyright (C) 2013 Lutz Fiebach (lufie@openelec.tv)
-#
-#  This program is dual-licensed; you can redistribute it and/or modify
-#  it under the terms of the GNU General Public License as published by
-#  the Free Software Foundation; either version 2 of the License, or
-#  (at your option) any later version.
-#
-#  This Program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with OpenELEC; see the file COPYING.  If not, see
-#  <http://www.gnu.org/licenses/>.
-#
-#  Alternatively, you can license this library under a commercial license,
-#  please contact OpenELEC Licensing for more information.
-#
-#  For more information contact:
-#  OpenELEC Licensing  <license@openelec.tv>  http://www.openelec.tv
-################################################################################
-# -*- coding: utf-8 -*-
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2009-2013 Stephan Raue (stephan@openelec.tv)
+# Copyright (C) 2013 Lutz Fiebach (lufie@openelec.tv)
+
 ################################# variables ##################################
 
 import xbmc
@@ -42,6 +20,7 @@ import dbus
 import dbus.mainloop.glib
 import defaults
 import shutil
+import hashlib, binascii
 
 from xml.dom import minidom
 
@@ -51,6 +30,7 @@ __addon__ = xbmcaddon.Addon(id=__scriptid__)
 __cwd__ = __addon__.getAddonInfo('path')
 __oe__ = sys.modules[globals()['__name__']]
 __media__ = '%s/resources/skins/Default/media' % __cwd__
+xbmcDialog = xbmcgui.Dialog()
 
 is_service = False
 conf_lock = False
@@ -104,7 +84,26 @@ xbmc.log('## LibreELEC Addon ## ' + unicode(__addon__.getAddonInfo('version')))
 
 
 def _(code):
-    return __addon__.getLocalizedString(code)
+    wizardComp = read_setting('libreelec', 'wizard_completed')
+    if wizardComp == "True":
+        codeNew = __addon__.getLocalizedString(code)
+    else:
+        curLang = read_setting("system", "language")
+        if curLang is not None:
+            lang_file = os.path.join(__cwd__, 'resources', 'language', str(curLang), 'strings.po')
+            with open(lang_file) as fp:
+                contents = fp.read().decode('utf-8').split('\n\n')
+                for strings in contents:
+                    if str(code) in strings:
+                        subString = strings.split('msgstr ')[1]
+                        subStringClean = re.sub('"', '', subString)
+                        codeNew = subStringClean
+                        break
+                    else:
+                        codeNew = __addon__.getLocalizedString(code)
+        else:
+            codeNew = __addon__.getLocalizedString(code)
+    return codeNew
 
 
 def dbg_log(source, text, level=4):
@@ -118,7 +117,7 @@ def dbg_log(source, text, level=4):
 def notify(title, message, icon='icon'):
     try:
         dbg_log('oe::notify', 'enter_function', 0)
-        msg = 'Notification("%s", "%s", 5000, "%s/icons/%s.png")' % (
+        msg = 'Notification("%s", "%s", 5000, "%s/%s.png")' % (
             title,
             message[0:64],
             __media__,
@@ -264,6 +263,8 @@ def load_file(filename):
     except Exception, e:
         dbg_log('oe::load_file(' + filename + ')', 'ERROR: (' + repr(e) + ')')
 
+def url_quote(var):
+    return urllib2.quote(var, safe="")
 
 def load_url(url):
     try:
@@ -332,11 +333,7 @@ def extract_file(filename, extract, destination, silent=False):
                 extract_dlg.create('LibreELEC ', _(32186).encode('utf-8'), ' ', ' ')
                 extract_dlg.update(0)
             compressed = tarfile.open(filename)
-            if silent == False:
-                xbmc.executebuiltin('ActivateWindow(busydialog)')
             names = compressed.getnames()
-            if silent == False:
-                xbmc.executebuiltin('Dialog.Close(busydialog)')
             for name in names:
                 for search in extract:
                     if search in name:
@@ -453,11 +450,6 @@ def set_busy(state):
             else:
                 __busy__ = __busy__ - 1
             dbg_log('oe::set_busy', '__busy__ = ' + unicode(__busy__), 0)
-            if __busy__ > 0:
-                if not input_request:
-                    xbmc.executebuiltin('ActivateWindow(busydialog)')
-            else:
-                xbmc.executebuiltin('Dialog.Close(busydialog)')
     except Exception, e:
         dbg_log('oe::set_busy', 'ERROR: (' + repr(e) + ')', 4)
 
@@ -492,21 +484,55 @@ def openWizard():
         winOeMain.doModal()
         winOeMain = oeWindows.mainWindow('service-LibreELEC-Settings-mainWindow.xml', __cwd__, 'Default', oeMain=__oe__)  # None
     except Exception, e:
-        xbmc.executebuiltin('Dialog.Close(busydialog)')
         dbg_log('oe::openWizard', 'ERROR: (' + repr(e) + ')')
 
 
 def openConfigurationWindow():
     global winOeMain, __cwd__, __oe__, dictModules
     try:
-        winOeMain = oeWindows.mainWindow('service-LibreELEC-Settings-mainWindow.xml', __cwd__, 'Default', oeMain=__oe__)
-        winOeMain.doModal()
-        for strModule in dictModules:
-            dictModules[strModule].exit()
-        winOeMain = None
-        del winOeMain
+        PINmatch = False
+        PINnext = 1000
+        PINenable = read_setting('system', 'pinlock_enable')
+        if PINenable == "0" or PINenable == None:
+            PINmatch = True
+        if PINenable == "1":
+            PINfail = read_setting('system', 'pinlock_timeFail')
+            if PINfail:
+                nowTime = time.time()
+                PINnext = (nowTime - float(PINfail))
+            if PINnext >= 300:
+                PINtry = 4
+                while PINmatch == False:
+                    if PINtry > 0:
+                        PINlock = xbmcDialog.input(_(32233), type=xbmcgui.INPUT_NUMERIC)
+                        if PINlock == '':
+                            break
+                        else:
+                            storedPIN = read_setting('system', 'pinlock_pin')
+                            PINmatch = verify_password(storedPIN, PINlock)
+                            if PINmatch == False:
+                                PINtry -= 1
+                                if PINtry > 0:
+                                    xbmcDialog.ok(_(32234), str(PINtry) + _(32235))
+                    else:
+                        timeFail = time.time()
+                        write_setting('system', 'pinlock_timeFail', str(timeFail))
+                        xbmcDialog.ok(_(32234), _(32236))
+                        break
+            else:
+                timeLeft = "{0:.2f}".format((300 - PINnext)/60)
+                xbmcDialog.ok(_(32237), timeLeft + _(32238))
+        if PINmatch == True:
+            winOeMain = oeWindows.mainWindow('service-LibreELEC-Settings-mainWindow.xml', __cwd__, 'Default', oeMain=__oe__)
+            winOeMain.doModal()
+            for strModule in dictModules:
+                dictModules[strModule].exit()
+            winOeMain = None
+            del winOeMain
+        else:
+            pass
+
     except Exception, e:
-        xbmc.executebuiltin('Dialog.Close(busydialog)')
         dbg_log('oe::openConfigurationWindow', 'ERROR: (' + repr(e) + ')')
 
 def standby_devices():
@@ -773,7 +799,7 @@ def parse_os_release():
 
 
 def get_os_release():
-    distribution = version = architecture = build = ''
+    distribution = version = architecture = build = project = device = builder_name = builder_version = ''
     os_release_info = parse_os_release()
     if os_release_info is not None:
         if 'NAME' in os_release_info:
@@ -786,12 +812,41 @@ def get_os_release():
             architecture = os_release_info['LIBREELEC_ARCH']
         if 'LIBREELEC_BUILD' in os_release_info:
             build = os_release_info['LIBREELEC_BUILD']
+        if 'LIBREELEC_PROJECT' in os_release_info:
+            project = os_release_info['LIBREELEC_PROJECT']
+        if 'LIBREELEC_DEVICE' in os_release_info:
+            device = os_release_info['LIBREELEC_DEVICE']
+        if 'BUILDER_NAME' in os_release_info:
+            builder_name = os_release_info['BUILDER_NAME']
+        if 'BUILDER_VERSION' in os_release_info:
+            builder_version = os_release_info['BUILDER_VERSION']
         return (
             distribution,
             version,
             architecture,
             build,
+            project,
+            device,
+            builder_name,
+            builder_version
             )
+
+def hash_password(password):
+    salt = hashlib.sha256(os.urandom(60)).hexdigest().encode('ascii')
+    pwdhash = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'),
+                                salt, 100000)
+    pwdhash = binascii.hexlify(pwdhash)
+    return (salt + pwdhash).decode('ascii')
+
+def verify_password(stored_password, provided_password):
+    salt = stored_password[:64]
+    stored_password = stored_password[64:]
+    pwdhash = hashlib.pbkdf2_hmac('sha512',
+                                  provided_password.encode('utf-8'),
+                                  salt.encode('ascii'),
+                                  100000)
+    pwdhash = binascii.hexlify(pwdhash).decode('ascii')
+    return pwdhash == stored_password
 
 
 minidom.Element.writexml = fixed_writexml
@@ -805,6 +860,10 @@ DISTRIBUTION = os_release_data[0]
 VERSION = os_release_data[1]
 ARCHITECTURE = os_release_data[2]
 BUILD = os_release_data[3]
+PROJECT = os_release_data[4]
+DEVICE = os_release_data[5]
+BUILDER_NAME = os_release_data[6]
+BUILDER_VERSION = os_release_data[7]
 DOWNLOAD_DIR = '/storage/downloads'
 XBMC_USER_HOME = os.environ.get('XBMC_USER_HOME', '/storage/.kodi')
 CONFIG_CACHE = os.environ.get('CONFIG_CACHE', '/storage/.cache')
@@ -815,6 +874,8 @@ if os.path.exists('/etc/machine-id'):
     SYSTEMID = load_file('/etc/machine-id')
 else:
     SYSTEMID = os.environ.get('SYSTEMID', '')
+
+BOOT_STATUS = load_file('/storage/.config/boot.status')
 
 ############################################################################################
 

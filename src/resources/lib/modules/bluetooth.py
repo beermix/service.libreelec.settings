@@ -1,29 +1,6 @@
-################################################################################
-#      This file is part of OpenELEC - http://www.openelec.tv
-#      Copyright (C) 2009-2013 Stephan Raue (stephan@openelec.tv)
-#      Copyright (C) 2013 Lutz Fiebach (lufie@openelec.tv)
-#
-#  This program is dual-licensed; you can redistribute it and/or modify
-#  it under the terms of the GNU General Public License as published by
-#  the Free Software Foundation; either version 2 of the License, or
-#  (at your option) any later version.
-#
-#  This Program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with OpenELEC; see the file COPYING.  If not, see
-#  <http://www.gnu.org/licenses/>.
-#
-#  Alternatively, you can license this library under a commercial license,
-#  please contact OpenELEC Licensing for more information.
-#
-#  For more information contact:
-#  OpenELEC Licensing  <license@openelec.tv>  http://www.openelec.tv
-################################################################################
-# -*- coding: utf-8 -*-
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2009-2013 Stephan Raue (stephan@openelec.tv)
+# Copyright (C) 2013 Lutz Fiebach (lufie@openelec.tv)
 
 from __future__ import absolute_import, print_function, unicode_literals, division
 import os
@@ -37,7 +14,7 @@ import oeWindows
 
 class bluetooth:
 
-    menu = {'5': {
+    menu = {'6': {
         'name': 32331,
         'menuLoader': 'menu_connections',
         'listTyp': 'btlist',
@@ -437,7 +414,7 @@ class bluetooth:
                 self.discovery_thread.start()
             else:
                 if self.discovery_thread.stopped:
-                    self.discovery_thread = None
+                    del self.discovery_thread
                     self.start_discovery()
                     self.discovery_thread = discoveryThread(self.oe)
                     self.discovery_thread.start()
@@ -478,17 +455,11 @@ class bluetooth:
 
             rebuildList = 0
             self.dbusDevices = self.get_devices()
-            if len(self.dbusDevices) != len(self.listItems):
+            for dbusDevice in self.dbusDevices:
                 rebuildList = 1
                 self.oe.winOeMain.getControl(int(self.oe.listObject['btlist'])).reset()
                 self.clear_list()
-            else:
-                for dbusDevice in self.dbusDevices:
-                    if dbusDevice not in self.listItems:
-                        rebuildList = 1
-                        self.oe.winOeMain.getControl(int(self.oe.listObject['btlist'])).reset()
-                        self.clear_list()
-                        break
+                break
             for dbusDevice in self.dbusDevices:
                 dictProperties = {}
                 apName = ''
@@ -743,7 +714,7 @@ class bluetooth:
                     except:
                         dbusBluezManager = None
                         pass
-                    self.btAgent = None
+                    del self.btAgent
                 self.oe.dbg_log('bluetooth::monitor::remove_agent', 'exit_function', 0)
             except Exception, e:
                 self.oe.dbg_log('bluetooth::monitor::remove_agent', 'ERROR: (' + repr(e) + ')', 4)
@@ -786,7 +757,7 @@ class bluetooth:
                     except:
                         dbusBluezObexManager = None
                         pass
-                    self.obAgent = None
+                    del self.obAgent
                 self.oe.dbg_log('bluetooth::monitor::remove_obex_agent', 'exit_function', 0)
             except Exception, e:
                 self.oe.dbg_log('bluetooth::monitor::remove_obex_agent', 'ERROR: (' + repr(e) + ')', 4)
@@ -815,7 +786,7 @@ class bluetooth:
                 self.oe.dbg_log('bluetooth::monitor::InterfacesRemoved::interfaces', repr(interfaces), 0)
                 if 'org.bluez.Adapter1' in interfaces:
                     self.parent.dbusBluezAdapter = None
-                if self.parent.visible:
+                if self.parent.visible and not hasattr(self.parent, 'discovery_thread'):
                     self.parent.menu_connections()
                 self.oe.dbg_log('bluetooth::monitor::InterfacesRemoved', 'exit_function', 0)
             except Exception, e:
@@ -920,8 +891,6 @@ class bluetoothAgent(dbus.service.Object):
 
     def busy(self):
         self.oe.input_request = False
-        if self.oe.__busy__ > 0:
-            xbmc.executebuiltin('ActivateWindow(busydialog)')
 
     @dbus.service.method('org.bluez.Agent1', in_signature='', out_signature='')
     def Release(self):
@@ -938,7 +907,6 @@ class bluetoothAgent(dbus.service.Object):
             self.oe.dbg_log('bluetooth::btAgent::AuthorizeService::device=', repr(device), 0)
             self.oe.dbg_log('bluetooth::btAgent::AuthorizeService::uuid=', repr(uuid), 0)
             self.oe.input_request = True
-            xbmc.executebuiltin('Dialog.Close(busydialog)')
             xbmcDialog = xbmcgui.Dialog()
             answer = xbmcDialog.yesno('Bluetooth', 'Authorize service', 'Authorize service %s?' % (uuid))
             self.oe.dbg_log('bluetooth::btAgent::AuthorizeService::answer=', repr(answer), 0)
@@ -957,7 +925,6 @@ class bluetoothAgent(dbus.service.Object):
             self.oe.dbg_log('bluetooth::btAgent::RequestPinCode', 'enter_function', 0)
             self.oe.dbg_log('bluetooth::btAgent::RequestPinCode::device=', repr(device), 0)
             self.oe.input_request = True
-            xbmc.executebuiltin('Dialog.Close(busydialog)')
             xbmcKeyboard = xbmc.Keyboard('', 'Enter PIN code')
             xbmcKeyboard.doModal()
             pincode = xbmcKeyboard.getText()
@@ -974,7 +941,6 @@ class bluetoothAgent(dbus.service.Object):
             self.oe.dbg_log('bluetooth::btAgent::RequestPasskey', 'enter_function', 0)
             self.oe.dbg_log('bluetooth::btAgent::RequestPasskey::device=', repr(device), 0)
             self.oe.input_request = True
-            xbmc.executebuiltin('Dialog.Close(busydialog)')
             xbmcDialog = xbmcgui.Dialog()
             passkey = int(xbmcDialog.numeric(0, 'Enter passkey (number in 0-999999)', '0'))
             self.oe.dbg_log('bluetooth::btAgent::RequestPasskey::passkey=', repr(passkey), 0)
@@ -1021,7 +987,6 @@ class bluetoothAgent(dbus.service.Object):
             self.oe.dbg_log('bluetooth::btAgent::RequestConfirmation::device=', repr(device), 0)
             self.oe.dbg_log('bluetooth::btAgent::RequestConfirmation::passkey=', repr(passkey), 0)
             self.oe.input_request = True
-            xbmc.executebuiltin('Dialog.Close(busydialog)')
             xbmcDialog = xbmcgui.Dialog()
             answer = xbmcDialog.yesno('Bluetooth', 'Request confirmation', 'Confirm passkey %06u' % (passkey))
             self.oe.dbg_log('bluetooth::btAgent::RequestConfirmation::answer=', repr(answer), 0)
@@ -1040,7 +1005,6 @@ class bluetoothAgent(dbus.service.Object):
             self.oe.dbg_log('bluetooth::btAgent::RequestAuthorization', 'enter_function', 0)
             self.oe.dbg_log('bluetooth::btAgent::RequestAuthorization::device=', repr(device), 0)
             self.oe.input_request = True
-            xbmc.executebuiltin('Dialog.Close(busydialog)')
             xbmcDialog = xbmcgui.Dialog()
             answer = xbmcDialog.yesno('Bluetooth', 'Request authorization', 'Accept pairing?')
             self.oe.dbg_log('bluetooth::btAgent::RequestAuthorization::answer=', repr(answer), 0)
@@ -1072,8 +1036,6 @@ class obexAgent(dbus.service.Object):
 
     def busy(self):
         self.oe.input_request = False
-        if self.oe.__busy__ > 0:
-            xbmc.executebuiltin('ActivateWindow(busydialog)')
 
     @dbus.service.method('org.bluez.obex.Agent1', in_signature='', out_signature='')
     def Release(self):
@@ -1091,7 +1053,6 @@ class obexAgent(dbus.service.Object):
             transfer = dbus.Interface(self.oe.dbusSystemBus.get_object('org.bluez.obex', path), 'org.freedesktop.DBus.Properties')
             properties = transfer.GetAll('org.bluez.obex.Transfer1')
             self.oe.input_request = True
-            xbmc.executebuiltin('Dialog.Close(busydialog)')
             xbmcDialog = xbmcgui.Dialog()
             answer = xbmcDialog.yesno('Bluetooth', self.oe._(32381), properties['Name'])
             self.oe.dbg_log('bluetooth::obexAgent::AuthorizePush::answer=', repr(answer), 0)
@@ -1148,9 +1109,10 @@ class discoveryThread(threading.Thread):
             while not self.stopped and not xbmc.abortRequested:
                 current_time = time.time()
                 if current_time > self.last_run + 5:
-                    self.oe.dictModules['bluetooth'].menu_connections(None)
+                    if self.main_menu.getSelectedItem().getProperty('modul') != 'bluetooth' or not hasattr(self.oe.dictModules['bluetooth'], 'discovery_thread'):
+                        self.oe.dictModules['bluetooth'].menu_connections(None)
                     self.last_run = current_time
-                if not self.main_menu.getSelectedItem().getProperty('modul') == 'bluetooth':
+                if self.main_menu.getSelectedItem().getProperty('modul') != 'bluetooth':
                     self.stop()
                 time.sleep(1)
             self.oe.dbg_log('bluetooth::discoveryThread::run', 'exit_function', 0)
@@ -1193,5 +1155,3 @@ class pinkeyTimer(threading.Thread):
             self.oe.dbg_log('bluetooth::pinkeyTimer::run', 'exit_function', 0)
         except Exception, e:
             self.oe.dbg_log('bluetooth::pinkeyTimer::run', 'ERROR: (' + repr(e) + ')', 4)
-
-
